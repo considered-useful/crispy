@@ -33,11 +33,13 @@ struct doge : qi::grammar<Iterator>
         phrase = adjective >> *ascii::space >> noun;
         start = +phrase;
     }
+
+    using rule_t = qi::rule<Iterator>;
     
-    qi::rule<Iterator> noun;
-    qi::rule<Iterator> adjective;
-    qi::rule<Iterator> phrase;
-    qi::rule<Iterator> start;
+    rule_t noun;
+    rule_t adjective;
+    rule_t phrase;
+    rule_t start;
 };
 
 std::string _readline(const char* prompt)
@@ -59,7 +61,6 @@ int main(int argc, char** argv) {
   while (1) {
     auto input = _readline("crispy>");
     add_history(input.c_str());
-    std::cout << "No you're a " << input << std::endl;
 
     using doge_parser = doge<decltype(std::begin(input))>;
     doge_parser parser;
@@ -67,7 +68,9 @@ int main(int argc, char** argv) {
         , std::end(input)
         , parser);
 
-    std::cout << "doge?:" << result << '\n';
+    std::cout << "The phrase '" << input << "' "
+        << (result ? "is" : "is not")
+        << " doge talk" << std::endl;
   }
 }
 
