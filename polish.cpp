@@ -3,6 +3,7 @@
 #include <memory>
 #include <numeric>
 #include <string>
+#include <tuple>
 
 // seems little point wrapping this if I need a different header
 // for arch linux (histedit.h) as opposed to other linux
@@ -25,75 +26,22 @@ namespace
 {
 enum Operation { Add, Subtract, Divide, Multiply };
 
-template <typename T, Operation>
-struct ApplyOp;
-
-template <typename T>
-struct ApplyOp<T, Add>
-{ using op = std::plus<T>; static const T start{0}; };
-
-template <typename T>
-struct ApplyOp<T, Subtract>
-{ using op = std::minus<T>; static const T start{0}; };
-
-template <typename T>
-struct ApplyOp<T, Divide>
-{ using op = std::divides<T>; static const T start{1}; };
-
-template <typename T>
-struct ApplyOp<T, Multiply>
-{ using op = std::multiplies<T>; static const T start{1}; };
-
-template <typename T, Operation Op>
-T apply_op_impl(T base, T value)
-{
-    using impl = typename ApplyOp<T, Op>::op;
-    impl func;
-    return func(base, value);
-}
-
-template <typename T, Operation Op>
-T initial_value_impl()
-{
-    return ApplyOp<T, Op>::start;
-}
-
-template <typename T>
-T apply_operation(T base, T value, Operation op)
-{
-    switch (op)
-    {
-    case Add:
-        return apply_op_impl<T,Add>(std::move(base), std::move(value));
-
-    case Subtract:
-        return apply_op_impl<T,Subtract>(std::move(base), std::move(value));
-
-    case Divide:
-        return apply_op_impl<T,Divide>(std::move(base), std::move(value));
-
-    case Multiply:
-        return apply_op_impl<T,Multiply>(std::move(base), std::move(value));
-    }
-    return T{};  // shouldn't happen!
-}
-
 template <typename T>
 T initial_value(Operation op)
 {
     switch (op)
     {
     case Add:
-        return initial_value_impl<T,Add>();
+        return T{0};
     
     case Subtract:
-        return initial_value_impl<T,Subtract>();
+        return T{0};
 
     case Divide:
-        return initial_value_impl<T,Divide>();
+        return T{1};
 
     case Multiply:
-        return initial_value_impl<T,Multiply>();
+        return T{1};
     }
     return T{};  // shouldn't happen!
 }
@@ -171,13 +119,13 @@ struct Evaluate : boost::static_visitor<int>
             return nullptr;  // shouldn't happen!
         }(e.op); 
 
-        auto begin = operands.size() > 1
-            ? std::next(std::begin(operands))
-            : std::begin(operands);
-
-        auto initial = operands.size() > 1
-            ? *std::begin(operands)
-            : initial_value<int>(e.op);
+        decltype(std::begin(operands)) begin;
+        decltype(operands)::value_type initial;
+        std::tie(begin, initial) = [&operands, e](){
+            return operands.size() > 1
+                ? std::make_tuple(std::next(std::begin(operands)), *std::begin(operands))
+                : std::make_tuple(std::begin(operands), initial_value<int>(e.op));
+        }();
 
         return std::accumulate(begin
             , std::end(operands)
@@ -203,24 +151,19 @@ namespace {
 template <typename Iterator>
 struct polish : qi::grammar<Iterator, Expression(), qi::space_type>
 {
-    polish() : polish::base_type(start)
+    polish() : polish::base_type(expression_)
     {
         using qi::lit;
         using qi::int_;
 
-        using phoenix::at_c;
-        using phoenix::push_back;
-
         operator_.add("+", Add)("-", Subtract)("/", Divide)("*", Multiply);
         expression_ = operator_ >> +operand_;
         operand_ = int_ | ( lit('(') >> expression_ >> lit(')') );
-        start = expression_;
     }
 
     qi::symbols<char, Operation> operator_;
     qi::rule<Iterator, Operand(), qi::space_type> operand_;
     qi::rule<Iterator, Expression(), qi::space_type> expression_;
-    qi::rule<Iterator, Expression(), qi::space_type> start;
 };
 
 std::string _readline(const char* prompt)
