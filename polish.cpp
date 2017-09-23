@@ -1,5 +1,7 @@
+#include <functional>
 #include <iostream>
 #include <memory>
+#include <numeric>
 #include <string>
 
 // seems little point wrapping this if I need a different header
@@ -8,40 +10,143 @@
 #include <histedit.h>
 
 // spirit headers
+#define BOOST_SPIRIT_USE_PHOENIX_V3
 #include <boost/config/warning_disable.hpp>
 #include <boost/spirit/include/qi.hpp>               
-#include <boost/spirit/include/phoenix_operator.hpp>
+#include <boost/spirit/include/phoenix.hpp>
+#include <boost/variant.hpp>
 
 namespace spirit = boost::spirit;
 namespace qi = spirit::qi;
 namespace ascii = spirit::ascii;
+namespace phoenix = boost::phoenix;
 
 namespace
 {
+using operation_t = std::function<int(int, int)>;
+
+enum Operation { Add, Subtract, Divide, Multiply };
+
+template <typename T, Operation>
+struct ApplyOp;
+
+template <typename T>
+struct ApplyOp<T, Add>
+{ using op = std::plus<T>; static const T start{0}; };
+
+template <typename T>
+struct ApplyOp<T, Subtract>
+{ using op = std::minus<T>; static const T start{0}; };
+
+template <typename T>
+struct ApplyOp<T, Divide>
+{ using op = std::divides<T>; static const T start{1}; };
+
+template <typename T>
+struct ApplyOp<T, Multiply>
+{ using op = std::multiplies<T>; static const T start{1}; };
+
+struct operation_ : qi::symbols<char, Operation>
+{
+    operation_()
+    {
+        add
+            ("+", Add)
+            ("-", Subtract)
+            ("*", Multiply)
+            ("/", Divide)
+        ;
+    }
+} operation;
+
+template <typename T, Operation Op>
+T apply_op_impl(T base, T value)
+{
+    using impl = typename ApplyOp<T, Op>::op;
+    impl func;
+    return func(base, value);
+}
+
+template <typename T, Operation Op>
+T initial_value_impl()
+{
+    return ApplyOp<T, Op>::start;
+}
+
+template <typename T>
+T apply_operation(T base, T value, Operation op)
+{
+    switch (op)
+    {
+    case Add:
+        return apply_op_impl<T,Add>(std::move(base), std::move(value));
+        return apply_op_impl<T,Subtract>(std::move(base), std::move(value));
+
+    case Divide:
+        return apply_op_impl<T,Divide>(std::move(base), std::move(value));
+
+    case Multiply:
+        return apply_op_impl<T,Multiply>(std::move(base), std::move(value));
+    }
+    return T{};  // shouldn't happen!
+}
+
+template <typename T>
+T initial_value(Operation op)
+{
+    switch (op)
+    {
+    case Add:
+        return initial_value_impl<T,Add>();
+    
+    case Subtract:
+        return initial_value_impl<T,Subtract>();
+
+    case Divide:
+        return initial_value_impl<T,Divide>();
+
+    case Multiply:
+        return initial_value_impl<T,Multiply>();
+    }
+    return T{};  // shouldn't happen!
+}
+
+struct Expression;;
+using Operand = boost::variant<int, boost::recursive_wrapper<Expression>>;
+
+struct Expression
+{
+    Operation op;
+    std::vector<Operand> operands;
+};
+
+} // namespace
+BOOST_FUSION_ADAPT_STRUCT(
+    Expression,
+    (Operation, op)
+    (std::vector<Operand>, operands)
+);
+
+namespace {
+
 template <typename Iterator>
-struct polish : qi::grammar<Iterator, qi::space_type>
+struct polish : qi::grammar<Iterator, Expression(), qi::space_type>
 {
     polish() : polish::base_type(start)
     {
         using qi::lit;
         using qi::int_;
-        using qi::char_;
 
-        op = lit('+') || lit('-') || lit('/') || lit('*'); 
-        // didn't work
-        // op = char_("+-*/");
-        expr = int_ || (
-            lit('(') >> op >> +int_ >> lit(')')
-        );
-
-        start = op >> +expr;
+        operator_.add("+", Add)("-", Subtract)("/", Divide)("*", Multiply);
+        expression_ = operator_ >> +operand_;
+        operand_ = int_ || ( lit('(') >> expression_ >> lit(')') );
+        start = expression_;
     }
 
-    using rule_t = qi::rule<Iterator, qi::space_type>;
-    
-    qi::rule<Iterator> op;
-    rule_t expr;
-    rule_t start;
+    qi::symbols<char, Operation> operator_;
+    qi::rule<Iterator, Operand(), qi::space_type> operand_;
+    qi::rule<Iterator, Expression(), qi::space_type> expression_;
+    qi::rule<Iterator, Expression(), qi::space_type> start;
 };
 
 std::string _readline(const char* prompt)
@@ -66,14 +171,17 @@ int main(int argc, char** argv) {
 
     using parser = polish<decltype(std::begin(input))>;
     parser p;
-    auto result = phrase_parse(std::begin(input)
+    Expression result;
+    auto success = phrase_parse(std::begin(input)
         , std::end(input)
         , p
-        , qi::space);
+        , qi::space
+        , result);
 
     std::cout << "The phrase '" << input << "' "
-        << (result ? "is" : "is not")
+        << (success ? "is" : "is not")
         << " polish" << std::endl;
+    // std::cout << "=" << result << std::endl;
   }
 }
 
