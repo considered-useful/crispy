@@ -10,7 +10,7 @@
 #include <histedit.h>
 
 // spirit headers
-#define BOOST_SPIRIT_USE_PHOENIX_V3
+#define BOOST_SPIRIT_USE_PHOENIX_V3 1
 #include <boost/config/warning_disable.hpp>
 #include <boost/spirit/include/qi.hpp>               
 #include <boost/spirit/include/phoenix.hpp>
@@ -23,8 +23,6 @@ namespace phoenix = boost::phoenix;
 
 namespace
 {
-using operation_t = std::function<int(int, int)>;
-
 enum Operation { Add, Subtract, Divide, Multiply };
 
 template <typename T, Operation>
@@ -45,19 +43,6 @@ struct ApplyOp<T, Divide>
 template <typename T>
 struct ApplyOp<T, Multiply>
 { using op = std::multiplies<T>; static const T start{1}; };
-
-struct operation_ : qi::symbols<char, Operation>
-{
-    operation_()
-    {
-        add
-            ("+", Add)
-            ("-", Subtract)
-            ("*", Multiply)
-            ("/", Divide)
-        ;
-    }
-} operation;
 
 template <typename T, Operation Op>
 T apply_op_impl(T base, T value)
@@ -80,6 +65,8 @@ T apply_operation(T base, T value, Operation op)
     {
     case Add:
         return apply_op_impl<T,Add>(std::move(base), std::move(value));
+
+    case Subtract:
         return apply_op_impl<T,Subtract>(std::move(base), std::move(value));
 
     case Divide:
@@ -113,11 +100,87 @@ T initial_value(Operation op)
 
 struct Expression;;
 using Operand = boost::variant<int, boost::recursive_wrapper<Expression>>;
-
 struct Expression
 {
     Operation op;
     std::vector<Operand> operands;
+};
+
+// based off http://coliru.stacked-crooked.com/a/92b61075295538e0
+struct Print : boost::static_visitor<std::ostream&>
+{
+    Print(std::ostream& os) : os(os) {}
+    std::ostream& os;
+
+    std::ostream& operator()(int i) const
+    {
+        return os << i << ' ';
+    }
+
+    std::ostream& operator()(const Expression& e) const
+    {
+        auto opString = [this](Operation o)->std::ostream&
+        {
+            switch (o)
+            {
+                case Add: return os << "Add:";
+                case Subtract: return os << "Subtract:";
+                case Divide: return os << "Divide:";
+                case Multiply: return os << "Multiply:";
+            }
+            // shouldn't happen!
+            return os;
+        };
+
+        opString(e.op) << "(";
+        for (const auto& arg : e.operands)
+        {
+            Print printer(os);
+            printer(arg);
+        }
+        return os << ")";
+    }
+
+    template <typename... TVariant>
+    std::ostream& operator()(boost::variant<TVariant...> const& v) const { 
+        return boost::apply_visitor(*this, v); 
+    }
+};
+
+struct Evaluate : boost::static_visitor<int>
+{
+    int operator()(int i) const { return i; }
+    int operator()(const Expression& e) const
+    {
+        std::vector<int> operands;
+        for (const auto& arg : e.operands)
+        {
+            Evaluate evaluator;
+            operands.push_back(evaluator(arg));
+        }
+
+        auto operation = [](Operation o)->std::function<int(int,int)>
+        {
+            switch (o)
+            {
+                case Add: return [](int a, int b){ return a + b; };
+                case Subtract: return [](int a, int b){ return a - b; };
+                case Divide: return [](int a, int b){ return a / b; };
+                case Multiply: return [](int a, int b){ return a * b; };
+            }
+            return nullptr;  // shouldn't happen!
+        }(e.op); 
+
+        return std::accumulate(std::begin(operands)
+            , std::end(operands)
+            , initial_value<int>(e.op)
+            , operation);
+    }
+
+    template <typename... TVariant>
+    int operator()(boost::variant<TVariant...> const& v) const { 
+        return boost::apply_visitor(*this, v); 
+    }
 };
 
 } // namespace
@@ -137,10 +200,13 @@ struct polish : qi::grammar<Iterator, Expression(), qi::space_type>
         using qi::lit;
         using qi::int_;
 
+        using phoenix::at_c;
+        using phoenix::push_back;
+
         operator_.add("+", Add)("-", Subtract)("/", Divide)("*", Multiply);
-        expression_ = operator_ >> +operand_;
-        operand_ = int_ || ( lit('(') >> expression_ >> lit(')') );
-        start = expression_;
+        expression_ %= operator_ >> +operand_;
+        operand_ %= int_ | ( lit('(') >> expression_ >> lit(')') );
+        start %= expression_;
     }
 
     qi::symbols<char, Operation> operator_;
@@ -178,10 +244,19 @@ int main(int argc, char** argv) {
         , qi::space
         , result);
 
-    std::cout << "The phrase '" << input << "' "
-        << (success ? "is" : "is not")
-        << " polish" << std::endl;
-    // std::cout << "=" << result << std::endl;
+    if (success)
+    {
+        Print printer(std::cout);
+        printer(result); 
+        std::cout << std::endl;
+
+        Evaluate evaluator;
+        std::cout << "=" << evaluator(result) << std::endl;
+    }
+    else 
+    {
+        std::cout << "The phrase '" << input << " is not polish" << std::endl;
+    }
   }
 }
 
