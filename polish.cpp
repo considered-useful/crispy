@@ -171,9 +171,17 @@ struct Evaluate : boost::static_visitor<int>
             return nullptr;  // shouldn't happen!
         }(e.op); 
 
-        return std::accumulate(std::begin(operands)
+        auto begin = operands.size() > 1
+            ? std::next(std::begin(operands))
+            : std::begin(operands);
+
+        auto initial = operands.size() > 1
+            ? *std::begin(operands)
+            : initial_value<int>(e.op);
+
+        return std::accumulate(begin
             , std::end(operands)
-            , initial_value<int>(e.op)
+            , initial
             , operation);
     }
 
@@ -204,9 +212,9 @@ struct polish : qi::grammar<Iterator, Expression(), qi::space_type>
         using phoenix::push_back;
 
         operator_.add("+", Add)("-", Subtract)("/", Divide)("*", Multiply);
-        expression_ %= operator_ >> +operand_;
-        operand_ %= int_ | ( lit('(') >> expression_ >> lit(')') );
-        start %= expression_;
+        expression_ = operator_ >> +operand_;
+        operand_ = int_ | ( lit('(') >> expression_ >> lit(')') );
+        start = expression_;
     }
 
     qi::symbols<char, Operation> operator_;
