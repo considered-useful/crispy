@@ -99,40 +99,43 @@ struct Print : boost::static_visitor<std::ostream&>
     }
 };
 
-struct Evaluate : boost::static_visitor<int>
+template <typename T>
+struct Evaluate : boost::static_visitor<T>
 {
-    int operator()(int i) const { return i; }
-    int operator()(const Expression& e) const
+    T operator()(T i) const { return i; }
+    T operator()(const Expression& e) const
     {
-        std::vector<int> operands;
+        std::vector<T> operands;
         for (const auto& arg : e.operands)
         {
             Evaluate evaluator;
             operands.push_back(evaluator(arg));
         }
 
-        auto operation = [](Operation o)->std::function<int(int,int)>
+        auto operation = [](Operation o)->std::function<T(T,T)>
         {
             switch (o)
             {
-                case Add: return [](int a, int b){ return a + b; };
-                case Subtract: return [](int a, int b){ return a - b; };
-                case Divide: return [](int a, int b)
+                case Add: return [](T a, T b){ return a + b; };
+                case Subtract: return [](T a, T b){ return a - b; };
+                case Divide: return [](T a, T b)
                 { 
                     if (b == 0) throw std::overflow_error("divide by zero");
                     return a / b;
                 };
-                case Multiply: return [](int a, int b){ return a * b; };
+                case Multiply: return [](T a, T b){ return a * b; };
             }
             return nullptr;  // shouldn't happen!
         }(e.op); 
 
+        // find the initial value for std::accumulate.  0 for +/-
+        // 1 for * and /.
         decltype(std::begin(operands)) begin;
-        decltype(operands)::value_type initial;
+        T initial;
         std::tie(begin, initial) = [&operands, e](){
             return operands.size() > 1
                 ? std::make_tuple(std::next(std::begin(operands)), *std::begin(operands))
-                : std::make_tuple(std::begin(operands), initial_value<int>(e.op));
+                : std::make_tuple(std::begin(operands), initial_value<T>(e.op));
         }();
 
         return std::accumulate(begin
@@ -142,7 +145,7 @@ struct Evaluate : boost::static_visitor<int>
     }
 
     template <typename... TVariant>
-    int operator()(boost::variant<TVariant...> const& v) const { 
+    T operator()(boost::variant<TVariant...> const& v) const { 
         return boost::apply_visitor(*this, v); 
     }
 };
@@ -209,7 +212,7 @@ int main(int argc, char** argv) {
         printer(result); 
         std::cout << std::endl;
 
-        Evaluate evaluator;
+        Evaluate<int> evaluator;
         try
         {
             std::cout << "=" << evaluator(result) << std::endl;
