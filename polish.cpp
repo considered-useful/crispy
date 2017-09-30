@@ -13,6 +13,9 @@
 #include <editline/readline.h>
 #include <histedit.h>
 
+// rational number support
+#include <boost/rational.hpp>
+
 // spirit headers
 #define BOOST_SPIRIT_USE_PHOENIX_V3 1
 #include <boost/config/warning_disable.hpp>
@@ -49,12 +52,15 @@ T initial_value(Operation op)
     return T{};  // shouldn't happen!
 }
 
-struct Expression;
-using Operand = boost::variant<int, boost::recursive_wrapper<Expression>>;
+template <typename T> struct Expression;
+template <typename T>
+using Operand = boost::variant<T, boost::recursive_wrapper<Expression<T>>>;
+
+template <typename T>
 struct Expression
 {
     Operation op;
-    std::vector<Operand> operands;
+    std::vector<Operand<T>> operands;
 };
 
 // based off http://coliru.stacked-crooked.com/a/92b61075295538e0
@@ -69,7 +75,16 @@ struct Print : boost::static_visitor<std::ostream&>
         return os << t << ' ';
     }
 
-    std::ostream& operator()(const Expression& e) const
+    template <typename T>
+    std::ostream& operator()(boost::rational<T> r) const
+    {
+        return r.denominator() == 1
+            ? os << r.numerator() << ' '
+            : os << r << ' ';
+    }
+
+    template <typename T>
+    std::ostream& operator()(const Expression<T>& e) const
     {
         auto opString = [this](Operation o)->std::ostream&
         {
@@ -103,7 +118,8 @@ template <typename T>
 struct Evaluate : boost::static_visitor<T>
 {
     T operator()(T i) const { return i; }
-    T operator()(const Expression& e) const
+
+    T operator()(const Expression<T>& e) const
     {
         std::vector<T> operands;
         for (const auto& arg : e.operands)
@@ -151,16 +167,17 @@ struct Evaluate : boost::static_visitor<T>
 };
 
 } // namespace
-BOOST_FUSION_ADAPT_STRUCT(
-    Expression,
+BOOST_FUSION_ADAPT_TPL_STRUCT(
+    (T),
+    (Expression) (T),
     (Operation, op)
-    (std::vector<Operand>, operands)
+    (std::vector<Operand<T>>, operands)
 );
 
 namespace {
 
-template <typename Iterator>
-struct polish : qi::grammar<Iterator, Expression(), qi::space_type>
+template <typename Iterator, typename T>
+struct polish : qi::grammar<Iterator, Expression<T>(), qi::space_type>
 {
     polish() : polish::base_type(expression_)
     {
@@ -173,8 +190,8 @@ struct polish : qi::grammar<Iterator, Expression(), qi::space_type>
     }
 
     qi::symbols<char, Operation> operator_;
-    qi::rule<Iterator, Operand(), qi::space_type> operand_;
-    qi::rule<Iterator, Expression(), qi::space_type> expression_;
+    qi::rule<Iterator, Operand<T>(), qi::space_type> operand_;
+    qi::rule<Iterator, Expression<T>(), qi::space_type> expression_;
 };
 
 std::string _readline(const char* prompt)
@@ -197,25 +214,29 @@ int main(int argc, char** argv) {
     auto input = _readline("crispy>");
     add_history(input.c_str());
 
-    using parser = polish<decltype(std::begin(input))>;
+    using result_t = boost::rational<int>;
+    using parser = polish<decltype(std::begin(input)), result_t>;
     parser p;
-    Expression result;
+    Expression<result_t> expression;
     auto success = phrase_parse(std::begin(input)
         , std::end(input)
         , p
         , qi::space
-        , result);
+        , expression);
 
     if (success)
     {
         Print printer(std::cout);
-        printer(result); 
+        printer(expression); 
         std::cout << std::endl;
 
-        Evaluate<int> evaluator;
+        Evaluate<result_t> evaluator;
         try
         {
-            std::cout << "=" << evaluator(result) << std::endl;
+            auto result = evaluator(expression);
+            std::cout << "="; 
+            printer(result);
+            std::cout << std::endl;
         }
         catch (std::exception& e)
         {
