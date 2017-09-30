@@ -1,7 +1,10 @@
+// https://stackoverflow.com/a/23232211/390557 was very helpful
+
 #include <functional>
 #include <iostream>
 #include <memory>
 #include <numeric>
+#include <stdexcept>
 #include <string>
 #include <tuple>
 
@@ -46,7 +49,7 @@ T initial_value(Operation op)
     return T{};  // shouldn't happen!
 }
 
-struct Expression;;
+struct Expression;
 using Operand = boost::variant<int, boost::recursive_wrapper<Expression>>;
 struct Expression
 {
@@ -60,9 +63,10 @@ struct Print : boost::static_visitor<std::ostream&>
     Print(std::ostream& os) : os(os) {}
     std::ostream& os;
 
-    std::ostream& operator()(int i) const
+    template <typename T>
+    std::ostream& operator()(T t) const
     {
-        return os << i << ' ';
+        return os << t << ' ';
     }
 
     std::ostream& operator()(const Expression& e) const
@@ -113,7 +117,11 @@ struct Evaluate : boost::static_visitor<int>
             {
                 case Add: return [](int a, int b){ return a + b; };
                 case Subtract: return [](int a, int b){ return a - b; };
-                case Divide: return [](int a, int b){ return a / b; };
+                case Divide: return [](int a, int b)
+                { 
+                    if (b == 0) throw std::overflow_error("divide by zero");
+                    return a / b;
+                };
                 case Multiply: return [](int a, int b){ return a * b; };
             }
             return nullptr;  // shouldn't happen!
@@ -202,7 +210,14 @@ int main(int argc, char** argv) {
         std::cout << std::endl;
 
         Evaluate evaluator;
-        std::cout << "=" << evaluator(result) << std::endl;
+        try
+        {
+            std::cout << "=" << evaluator(result) << std::endl;
+        }
+        catch (std::exception& e)
+        {
+            std::cout << "Error:" << e.what() << std::endl;
+        }
     }
     else 
     {
