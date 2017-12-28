@@ -30,7 +30,7 @@ namespace phoenix = boost::phoenix;
 
 namespace
 {
-enum Operation { Add, Subtract, Divide, Multiply };
+enum Operation { Add, Subtract, Divide, Multiply, Modulo };
 
 template <typename T>
 T initial_value(Operation op)
@@ -47,6 +47,9 @@ T initial_value(Operation op)
         return T{1};
 
     case Multiply:
+        return T{1};
+
+    case Modulo:
         return T{1};
     }
     return T{};  // shouldn't happen!
@@ -94,6 +97,7 @@ struct Print : boost::static_visitor<std::ostream&>
                 case Subtract: return os << "Subtract:";
                 case Divide: return os << "Divide:";
                 case Multiply: return os << "Multiply:";
+                case Modulo: return os << "Modulo:";
             }
             // shouldn't happen!
             return os;
@@ -140,6 +144,12 @@ struct Evaluate : boost::static_visitor<T>
                     return a / b;
                 };
                 case Multiply: return [](T a, T b){ return a * b; };
+                case Modulo: return [](T a, T b)
+                { 
+                    if (b == 0) throw std::overflow_error("divide by zero");
+                    auto c = a / b;
+                    return c.numerator() % c.denominator();
+                };
             }
             return nullptr;  // shouldn't happen!
         }(e.op); 
@@ -184,7 +194,7 @@ struct polish : qi::grammar<Iterator, Expression<T>(), qi::space_type>
         using qi::lit;
         using qi::int_;
 
-        operator_.add("+", Add)("-", Subtract)("/", Divide)("*", Multiply);
+        operator_.add("+", Add)("-", Subtract)("/", Divide)("*", Multiply)("%", Modulo);
         expression_ = operator_ >> +operand_;
         operand_ = int_ | ( lit('(') >> expression_ >> lit(')') );
     }
