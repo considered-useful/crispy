@@ -31,7 +31,7 @@ namespace phoenix = boost::phoenix;
 
 namespace
 {
-enum Operation { Add, Subtract, Divide, Multiply, Modulo, Exponent };
+enum Operation { Add, Subtract, Divide, Multiply, Modulo, Exponent, Min};
 
 template <typename T>
 T initial_value(Operation op)
@@ -55,6 +55,9 @@ T initial_value(Operation op)
 
     case Exponent:
         return T{1};
+
+    case Min:
+        return T{0};
     }
     return T{};  // shouldn't happen!
 }
@@ -121,6 +124,7 @@ struct Print : boost::static_visitor<std::ostream&>
                 case Multiply: return os << "Multiply:";
                 case Modulo: return os << "Modulo:";
                 case Exponent: return os << "Exponent:";
+                case Min: return os << "Min:";
             }
             // shouldn't happen!
             return os;
@@ -177,6 +181,7 @@ struct Evaluate : boost::static_visitor<T>
                     // TODO - there's no error checking here.  see http://en.cppreference.com/w/cpp/numeric/math/pow for what can go wrong
                     return pow(a, b);
                 };
+                case Min: return [](T a, T b){ return std::min(a,b); };
             }
             return nullptr;  // shouldn't happen!
         }(e.op); 
@@ -223,7 +228,7 @@ struct polish : qi::grammar<Iterator, Expression<T>(), qi::space_type>
         using qi::lit;
         using qi::int_;
 
-        operator_.add("+", Add)("-", Subtract)("/", Divide)("*", Multiply)("%", Modulo)("^", Exponent);
+        operator_.add("+", Add)("-", Subtract)("/", Divide)("*", Multiply)("%", Modulo)("^", Exponent)("min", Min);
         expression_ = operator_ >> +operand_;
         operand_ = int_ | ( lit('(') >> expression_ >> lit(')') );
     }
