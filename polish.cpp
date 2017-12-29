@@ -66,6 +66,13 @@ struct Expression
     std::vector<Operand<T>> operands;
 };
 
+// modulo operator for boost::rational
+template <typename T>
+boost::rational<T> operator%(const boost::rational<T>& lhs, const boost::rational<T>& rhs) {
+    auto c = lhs / rhs;
+    return c.numerator() % c.denominator();
+}
+
 // based off http://coliru.stacked-crooked.com/a/92b61075295538e0
 struct Print : boost::static_visitor<std::ostream&>
 {
@@ -147,8 +154,7 @@ struct Evaluate : boost::static_visitor<T>
                 case Modulo: return [](T a, T b)
                 { 
                     if (b == 0) throw std::overflow_error("divide by zero");
-                    auto c = a / b;
-                    return c.numerator() % c.denominator();
+                    return a % b;
                 };
             }
             return nullptr;  // shouldn't happen!
@@ -175,6 +181,8 @@ struct Evaluate : boost::static_visitor<T>
         return boost::apply_visitor(*this, v); 
     }
 };
+
+
 
 } // namespace
 BOOST_FUSION_ADAPT_TPL_STRUCT(
