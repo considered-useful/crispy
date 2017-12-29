@@ -1,5 +1,6 @@
 // https://stackoverflow.com/a/23232211/390557 was very helpful
 
+#include <cmath>
 #include <functional>
 #include <iostream>
 #include <memory>
@@ -30,7 +31,7 @@ namespace phoenix = boost::phoenix;
 
 namespace
 {
-enum Operation { Add, Subtract, Divide, Multiply, Modulo };
+enum Operation { Add, Subtract, Divide, Multiply, Modulo, Exponent };
 
 template <typename T>
 T initial_value(Operation op)
@@ -50,6 +51,9 @@ T initial_value(Operation op)
         return T{1};
 
     case Modulo:
+        return T{1};
+
+    case Exponent:
         return T{1};
     }
     return T{};  // shouldn't happen!
@@ -71,6 +75,17 @@ template <typename T>
 boost::rational<T> operator%(const boost::rational<T>& lhs, const boost::rational<T>& rhs) {
     auto c = lhs / rhs;
     return c.numerator() % c.denominator();
+}
+
+// pow for boost::rational
+template <typename T>
+boost::rational<T> pow(const boost::rational<T>& base, const boost::rational<T>& exp) {
+    // TODO - it's the wrong return type
+    return boost::rational<T>(
+        static_cast<T>(
+            std::pow(boost::rational_cast<double>(base), boost::rational_cast<double>(exp))
+        )
+    ); 
 }
 
 // based off http://coliru.stacked-crooked.com/a/92b61075295538e0
@@ -105,6 +120,7 @@ struct Print : boost::static_visitor<std::ostream&>
                 case Divide: return os << "Divide:";
                 case Multiply: return os << "Multiply:";
                 case Modulo: return os << "Modulo:";
+                case Exponent: return os << "Exponent:";
             }
             // shouldn't happen!
             return os;
@@ -156,6 +172,11 @@ struct Evaluate : boost::static_visitor<T>
                     if (b == 0) throw std::overflow_error("divide by zero");
                     return a % b;
                 };
+                case Exponent: return [](T a, T b)
+                { 
+                    // TODO - there's no error checking here.  see http://en.cppreference.com/w/cpp/numeric/math/pow for what can go wrong
+                    return pow(a, b);
+                };
             }
             return nullptr;  // shouldn't happen!
         }(e.op); 
@@ -202,7 +223,7 @@ struct polish : qi::grammar<Iterator, Expression<T>(), qi::space_type>
         using qi::lit;
         using qi::int_;
 
-        operator_.add("+", Add)("-", Subtract)("/", Divide)("*", Multiply)("%", Modulo);
+        operator_.add("+", Add)("-", Subtract)("/", Divide)("*", Multiply)("%", Modulo)("^", Exponent);
         expression_ = operator_ >> +operand_;
         operand_ = int_ | ( lit('(') >> expression_ >> lit(')') );
     }
