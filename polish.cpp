@@ -193,9 +193,7 @@ struct Evaluate : boost::static_visitor<T>
 
         // find the initial value for std::accumulate.  0 for +/-
         // 1 for * and /.
-        decltype(std::begin(operands)) begin;
-        T initial;
-        std::tie(begin, initial) = [&operands, e](){
+        auto [begin, initial] = [&operands, e](){
             return operands.size() > 1
                 ? std::make_tuple(std::next(std::begin(operands)), *std::begin(operands))
                 : std::make_tuple(std::begin(operands), initial_value<T>(e.op));
